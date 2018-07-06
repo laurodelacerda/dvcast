@@ -1,7 +1,8 @@
 cplusplus {{
 #include "veins/modules/messages/BasicSafetyMessage_m.h"
 }}
-packet BasicSafetyMessage;
+
+class BasicSafetyMessage;
 
 packet DVCastHello extends BasicSafetyMessage {
     double senderAngle;

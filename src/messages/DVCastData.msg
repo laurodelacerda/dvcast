@@ -1,0 +1,13 @@
+cplusplus {{
+#include "veins/base/utils/Coord.h"
+#include "veins/modules/messages/BasicSafetyMessage_m.h"
+}}
+
+class BasicSafetyMessage;
+class noncobject Coord;
+
+packet DVCastData extends BasicSafetyMessage
+{
+    Coord roiUp;
+    Coord roiDown;
+}
