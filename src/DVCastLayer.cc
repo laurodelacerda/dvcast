@@ -10,13 +10,25 @@ void DVCastLayer::initialize(int stage)
     {
         //Initializing members and pointers of your application goes here
         EV << "Initializing " << par("appName").stringValue() << std::endl;
-        beaconUpdate = simTime();
         lastDroveAt = simTime();
         sentMessage = false;
+        sendHello   = par("sendHello").boolValue();
+
+        helloInterval = par("helloInterval").doubleValue();
+
+        sendHelloEvt = new cMessage("hello evt", 0);
     }
     else if (stage == 1)
     {
         //Initializing members that require initialized other modules goes here
+        simtime_t firstHello = simTime();
+        simtime_t randomOffset = dblrand() * beaconInterval;
+        firstHello = simTime() + randomOffset;
+
+        if (sendHello) {
+            scheduleAt(firstHello, sendHelloEvt);
+        }
+
 
     }
 }
@@ -34,13 +46,13 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
 
     if(DVCastHello* hello = dynamic_cast<DVCastHello*>(bsm))
     {
-        /*
+
         EV_INFO << "[DVCAST] Got hello from " << hello->getSenderAddress()
                 << "| Pos: "   << hello->getSenderPos()
                 << "| Angle: " << hello->getSenderAngle()
                 << endl;
-        */
-        updateTopology(hello);
+
+        mapRelativePos(hello);
     }
 }
 
@@ -50,16 +62,44 @@ void DVCastLayer::onWSM(WaveShortMessage* wsm) {
 
 }
 
-void DVCastLayer::onWSA(WaveServiceAdvertisment* wsa) {
-    //Your application has received a service advertisement from another car or RSU
-    //code for handling the message goes here, see TraciDemo11p.cc for examples
 
+void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
+{
+    wsm->setWsmVersion(1);
+    wsm->setTimestamp(simTime());
+    wsm->setSenderAddress(myId);
+    wsm->setRecipientAddress(rcvId);
+    wsm->setSerial(serial);
+    wsm->setBitLength(headerLength);
+
+    if (DVCastHello* hello = dynamic_cast<DVCastHello*>(wsm) ) {
+        hello->setSenderPos(curPosition);
+        hello->setSenderSpeed(curSpeed);
+        if(!mobility)
+        {
+            hello->setSenderAngle(0);
+        }
+        else
+        {
+            hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
+        }
+        hello->setPsid(-1);
+        hello->setChannelNumber(Channels::CCH);
+        hello->addBitLength(beaconLengthBits);
+        hello->setUserPriority(beaconUserPriority);
+    }
 }
 
 void DVCastLayer::handleSelfMsg(cMessage* msg) {
     //this method is for self messages (mostly timers)
     //it is important to call the BaseWaveApplLayer function for BSM and WSM transmission
-    BaseWaveApplLayer::handleSelfMsg(msg);
+
+    DVCastHello* hello = new DVCastHello("hello", 0);
+    populateWSM(hello);
+    sendDown(hello);
+    scheduleAt(simTime() + helloInterval, sendHelloEvt);
+
+//    BaseWaveApplLayer::handleSelfMsg(hello);
 }
 
 void DVCastLayer::handlePositionUpdate(cObject* obj) {
@@ -67,13 +107,32 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
     //the vehicle has moved. Code that reacts to new positions goes here.
     //member variables such as currentPosition and currentSpeed are updated in the parent class
 
-    if (simTime() - beaconUpdate >= 1)
-    {
-        DVCastHello* hello = new DVCastHello("hello", 2);
-        populateWSM(hello);
-        hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
-        sendDown(hello);
-        beaconUpdate = simTime();
+    // stopped for for at least 10s?
+    if (mobility->getSpeed() < 1) {
+        if (simTime() - lastDroveAt >= 10 && sentMessage == false) {
+            findHost()->getDisplayString().updateWith("r=16,red");
+            sentMessage = true;
+
+//            DVCastData* data = new DVCastData();
+
+            WaveShortMessage* wsm = new WaveShortMessage();
+            populateWSM(wsm);
+            wsm->setWsmData(mobility->getRoadId().c_str());
+
+            //host is standing still due to crash
+            if (dataOnSch) {
+                startService(Channels::SCH2, 42, "Traffic Information Service");
+                //started service and server advertising, schedule message to self to send later
+                scheduleAt(computeAsynchronousSendingTime(1,type_SCH),wsm);
+            }
+            else {
+                //send right away on CCH, because channel switching is disabled
+                sendDown(wsm);
+            }
+        }
+    }
+    else {
+        lastDroveAt = simTime();
     }
 }
 
@@ -93,7 +152,7 @@ void DVCastLayer::onHello(DVCastHello* msg){
 
 }
 
-void DVCastLayer::updateTopology(DVCastHello* msg)
+void DVCastLayer::mapRelativePos(DVCastHello* msg)
 {
     Coord senderPos = msg->getSenderPos();
     double myAngle  = convertAngleToDegrees(mobility->getAngleRad());
@@ -209,16 +268,16 @@ void DVCastLayer::removeFromTable(std::deque<int>* target, int key) {
     }
 }
 
-int DVCastLayer::convertAngleToDegrees(double angle){
+int DVCastLayer::convertAngleToDegrees(double angleRad){
 
-    EV_INFO << angle << endl;
-    angle = (180 / 3.14) * angle;
-    angle = fmod(angle, 360);
+    double angleDeg;
+    angleDeg = (180 / 3.14) * angleRad;
+    angleDeg = fmod(angleDeg, 360);
 
-    if (angle < 0)
+    if (angleDeg < 0)
     {
-        angle += 360;
+        angleDeg += 360;
     }
-
-    return angle;
+    EV_INFO << angleRad << " " << angleDeg << endl;
+    return angleDeg;
 }
