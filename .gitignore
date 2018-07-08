@@ -1,4 +1,3 @@
-Makefile
 out/
 simulations/results/*
 simulations/.qtenvrc
