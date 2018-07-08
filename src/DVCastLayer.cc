@@ -106,34 +106,36 @@ void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
     wsm->setSerial(serial);
     wsm->setBitLength(headerLength);
 
-    if (DVCastHello* hello = dynamic_cast<DVCastHello*>(wsm) ) {
+    wsm->setPsid(-1);
+    wsm->setChannelNumber(Channels::CCH);
+
+    if (DVCastData* data = dynamic_cast<DVCastData*>(wsm))
+    {
+        data->setSenderPos(curPosition);
+        data->setSenderSpeed(curSpeed);
+
+        data->setWsmData(mobility->getRoadId().c_str());
+        data->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
+        data->setRoiUp(getROIUp());
+        data->setRoiDown(getROIDown());
+    }
+    else if (DVCastHello* hello = dynamic_cast<DVCastHello*>(wsm))
+    {
         hello->setSenderPos(curPosition);
         hello->setSenderSpeed(curSpeed);
-        if(mobility){
-            hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
-        }
-        else{
-            hello->setSenderAngle(0);
-        }
-        hello->setPsid(-1);
-        hello->setChannelNumber(Channels::CCH);
+
+        hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
         hello->addBitLength(beaconLengthBits);
         hello->setUserPriority(beaconUserPriority);
     }
-    else if (DVCastData* data = dynamic_cast<DVCastData*>(wsm)){
-        data->setWsmData(mobility->getRoadId().c_str());
-        data->setSenderPos(curPosition);
-        data->setSenderSpeed(curSpeed);
-        data->setRoiUp(getROIUp());
-        data->setRoiUp(getROIDown());
-    }
+
 }
 
 void DVCastLayer::handleSelfMsg(cMessage* msg) {
     //this method is for self messages (mostly timers)
     //it is important to call the BaseWaveApplLayer function for BSM and WSM transmission
 
-    DVCastHello* hello = new DVCastHello("hello", 0);
+    DVCastHello* hello = new DVCastHello("hello-teste", 0);
     populateWSM(hello);
     sendDown(hello);
     scheduleAt(simTime() + helloInterval, sendHelloEvt);
@@ -152,19 +154,21 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
             findHost()->getDisplayString().updateWith("r=16,red");
             sentMessage = true;
 
-            DVCastData* data = new DVCastData("data");
+            DVCastData* data = new DVCastData("data", 1);
             populateWSM(data);
+            sendDown(data);
 
-            //host is standing still due to crash
-            if (dataOnSch) {
-                startService(Channels::SCH2, 42, "Traffic Information Service");
-                //started service and server advertising, schedule message to self to send later
-                scheduleAt(computeAsynchronousSendingTime(1,type_SCH), data);
-            }
-            else {
-                //send right away on CCH, because channel switching is disabled
-                sendDown(data);
-            }
+
+//            //host is standing still due to crash
+//            if (dataOnSch) {
+//                startService(Channels::SCH2, 42, "Traffic Information Service");
+//                //started service and server advertising, schedule message to self to send later
+//                scheduleAt(computeAsynchronousSendingTime(1,type_SCH), data);
+//            }
+//            else {
+//                //send right away on CCH, because channel switching is disabled
+//                sendDown(data);
+//            }
         }
     }
     else {
