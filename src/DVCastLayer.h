@@ -65,6 +65,14 @@ private:
     // Converte o ângulo de radianos para graus
     virtual int convertAngleToDegrees(double angleRad);
 
+    // Atualiza as flags após hello ou data
+    virtual void updateFlags(DVCastHello* msg);
+
+    virtual bool inROI(Coord up, Coord down);
+
+    virtual Coord getROIUp();
+    virtual Coord getROIDown();
+
     simtime_t lastDroveAt;
     simtime_t helloInterval;
 

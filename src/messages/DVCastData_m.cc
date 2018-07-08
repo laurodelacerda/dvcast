@@ -181,6 +181,7 @@ Register_Class(DVCastData)
 
 DVCastData::DVCastData(const char *name, short kind) : ::BasicSafetyMessage(name,kind)
 {
+    this->senderAngle = 0;
 }
 
 DVCastData::DVCastData(const DVCastData& other) : ::BasicSafetyMessage(other)
@@ -202,6 +203,7 @@ DVCastData& DVCastData::operator=(const DVCastData& other)
 
 void DVCastData::copy(const DVCastData& other)
 {
+    this->senderAngle = other.senderAngle;
     this->roiUp = other.roiUp;
     this->roiDown = other.roiDown;
 }
@@ -209,6 +211,7 @@ void DVCastData::copy(const DVCastData& other)
 void DVCastData::parsimPack(omnetpp::cCommBuffer *b) const
 {
     ::BasicSafetyMessage::parsimPack(b);
+    doParsimPacking(b,this->senderAngle);
     doParsimPacking(b,this->roiUp);
     doParsimPacking(b,this->roiDown);
 }
@@ -216,8 +219,19 @@ void DVCastData::parsimPack(omnetpp::cCommBuffer *b) const
 void DVCastData::parsimUnpack(omnetpp::cCommBuffer *b)
 {
     ::BasicSafetyMessage::parsimUnpack(b);
+    doParsimUnpacking(b,this->senderAngle);
     doParsimUnpacking(b,this->roiUp);
     doParsimUnpacking(b,this->roiDown);
+}
+
+double DVCastData::getSenderAngle() const
+{
+    return this->senderAngle;
+}
+
+void DVCastData::setSenderAngle(double senderAngle)
+{
+    this->senderAngle = senderAngle;
 }
 
 Coord& DVCastData::getRoiUp()
@@ -305,7 +319,7 @@ const char *DVCastDataDescriptor::getProperty(const char *propertyname) const
 int DVCastDataDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *basedesc = getBaseClassDescriptor();
-    return basedesc ? 2+basedesc->getFieldCount() : 2;
+    return basedesc ? 3+basedesc->getFieldCount() : 3;
 }
 
 unsigned int DVCastDataDescriptor::getFieldTypeFlags(int field) const
@@ -317,10 +331,11 @@ unsigned int DVCastDataDescriptor::getFieldTypeFlags(int field) const
         field -= basedesc->getFieldCount();
     }
     static unsigned int fieldTypeFlags[] = {
+        FD_ISEDITABLE,
         FD_ISCOMPOUND,
         FD_ISCOMPOUND,
     };
-    return (field>=0 && field<2) ? fieldTypeFlags[field] : 0;
+    return (field>=0 && field<3) ? fieldTypeFlags[field] : 0;
 }
 
 const char *DVCastDataDescriptor::getFieldName(int field) const
@@ -332,18 +347,20 @@ const char *DVCastDataDescriptor::getFieldName(int field) const
         field -= basedesc->getFieldCount();
     }
     static const char *fieldNames[] = {
+        "senderAngle",
         "roiUp",
         "roiDown",
     };
-    return (field>=0 && field<2) ? fieldNames[field] : nullptr;
+    return (field>=0 && field<3) ? fieldNames[field] : nullptr;
 }
 
 int DVCastDataDescriptor::findField(const char *fieldName) const
 {
     omnetpp::cClassDescriptor *basedesc = getBaseClassDescriptor();
     int base = basedesc ? basedesc->getFieldCount() : 0;
-    if (fieldName[0]=='r' && strcmp(fieldName, "roiUp")==0) return base+0;
-    if (fieldName[0]=='r' && strcmp(fieldName, "roiDown")==0) return base+1;
+    if (fieldName[0]=='s' && strcmp(fieldName, "senderAngle")==0) return base+0;
+    if (fieldName[0]=='r' && strcmp(fieldName, "roiUp")==0) return base+1;
+    if (fieldName[0]=='r' && strcmp(fieldName, "roiDown")==0) return base+2;
     return basedesc ? basedesc->findField(fieldName) : -1;
 }
 
@@ -356,10 +373,11 @@ const char *DVCastDataDescriptor::getFieldTypeString(int field) const
         field -= basedesc->getFieldCount();
     }
     static const char *fieldTypeStrings[] = {
+        "double",
         "Coord",
         "Coord",
     };
-    return (field>=0 && field<2) ? fieldTypeStrings[field] : nullptr;
+    return (field>=0 && field<3) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **DVCastDataDescriptor::getFieldPropertyNames(int field) const
@@ -426,8 +444,9 @@ std::string DVCastDataDescriptor::getFieldValueAsString(void *object, int field,
     }
     DVCastData *pp = (DVCastData *)object; (void)pp;
     switch (field) {
-        case 0: {std::stringstream out; out << pp->getRoiUp(); return out.str();}
-        case 1: {std::stringstream out; out << pp->getRoiDown(); return out.str();}
+        case 0: return double2string(pp->getSenderAngle());
+        case 1: {std::stringstream out; out << pp->getRoiUp(); return out.str();}
+        case 2: {std::stringstream out; out << pp->getRoiDown(); return out.str();}
         default: return "";
     }
 }
@@ -442,6 +461,7 @@ bool DVCastDataDescriptor::setFieldValueAsString(void *object, int field, int i,
     }
     DVCastData *pp = (DVCastData *)object; (void)pp;
     switch (field) {
+        case 0: pp->setSenderAngle(string2double(value)); return true;
         default: return false;
     }
 }
@@ -455,8 +475,8 @@ const char *DVCastDataDescriptor::getFieldStructName(int field) const
         field -= basedesc->getFieldCount();
     }
     switch (field) {
-        case 0: return omnetpp::opp_typename(typeid(Coord));
         case 1: return omnetpp::opp_typename(typeid(Coord));
+        case 2: return omnetpp::opp_typename(typeid(Coord));
         default: return nullptr;
     };
 }
@@ -471,8 +491,8 @@ void *DVCastDataDescriptor::getFieldStructValuePointer(void *object, int field, 
     }
     DVCastData *pp = (DVCastData *)object; (void)pp;
     switch (field) {
-        case 0: return (void *)(&pp->getRoiUp()); break;
-        case 1: return (void *)(&pp->getRoiDown()); break;
+        case 1: return (void *)(&pp->getRoiUp()); break;
+        case 2: return (void *)(&pp->getRoiDown()); break;
         default: return nullptr;
     }
 }

@@ -8,6 +8,7 @@ class noncobject Coord;
 
 packet DVCastData extends BasicSafetyMessage
 {
+    double senderAngle;
     Coord roiUp;
     Coord roiDown;
 }

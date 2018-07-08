@@ -3,6 +3,8 @@
 
 Define_Module(DVCastLayer);
 
+int senderRadius = 2500;
+
 void DVCastLayer::initialize(int stage)
 {
     BaseWaveApplLayer::initialize(stage);
@@ -46,13 +48,21 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
 
     if(DVCastHello* hello = dynamic_cast<DVCastHello*>(bsm))
     {
-
-        EV_INFO << "[DVCAST] Got hello from " << hello->getSenderAddress()
+        EV_INFO << "[DVCAST Hello] Sender: " << hello->getSenderAddress()
                 << "| Pos: "   << hello->getSenderPos()
                 << "| Angle: " << hello->getSenderAngle()
                 << endl;
 
         mapRelativePos(hello);
+    }
+    else if(DVCastData* data = dynamic_cast<DVCastData*>(bsm))
+    {
+        EV_INFO << "[DVCAST Data] Sender: " << data->getSenderAddress()
+                << "| Pos: "      << data->getSenderPos()
+                << "| Angle: "    << data->getSenderAngle()
+                << "| ROI Up: "   << data->getRoiUp()
+                << "| ROI Down: " << data->getRoiDown()
+                << endl;
     }
 }
 
@@ -75,18 +85,23 @@ void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
     if (DVCastHello* hello = dynamic_cast<DVCastHello*>(wsm) ) {
         hello->setSenderPos(curPosition);
         hello->setSenderSpeed(curSpeed);
-        if(!mobility)
-        {
-            hello->setSenderAngle(0);
-        }
-        else
-        {
+        if(mobility){
             hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
+        }
+        else{
+            hello->setSenderAngle(0);
         }
         hello->setPsid(-1);
         hello->setChannelNumber(Channels::CCH);
         hello->addBitLength(beaconLengthBits);
         hello->setUserPriority(beaconUserPriority);
+    }
+    else if (DVCastData* data = dynamic_cast<DVCastData*>(wsm)){
+        data->setWsmData(mobility->getRoadId().c_str());
+        data->setSenderPos(curPosition);
+        data->setSenderSpeed(curSpeed);
+        data->setRoiUp(getROIUp());
+        data->setRoiUp(getROIDown());
     }
 }
 
@@ -107,33 +122,32 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
     //the vehicle has moved. Code that reacts to new positions goes here.
     //member variables such as currentPosition and currentSpeed are updated in the parent class
 
+    /*
     // stopped for for at least 10s?
     if (mobility->getSpeed() < 1) {
         if (simTime() - lastDroveAt >= 10 && sentMessage == false) {
             findHost()->getDisplayString().updateWith("r=16,red");
             sentMessage = true;
 
-//            DVCastData* data = new DVCastData();
-
-            WaveShortMessage* wsm = new WaveShortMessage();
-            populateWSM(wsm);
-            wsm->setWsmData(mobility->getRoadId().c_str());
+            DVCastData* data = new DVCastData();
+            populateWSM(data);
 
             //host is standing still due to crash
             if (dataOnSch) {
                 startService(Channels::SCH2, 42, "Traffic Information Service");
                 //started service and server advertising, schedule message to self to send later
-                scheduleAt(computeAsynchronousSendingTime(1,type_SCH),wsm);
+                scheduleAt(computeAsynchronousSendingTime(1,type_SCH), data);
             }
             else {
                 //send right away on CCH, because channel switching is disabled
-                sendDown(wsm);
+                sendDown(data);
             }
         }
     }
     else {
         lastDroveAt = simTime();
     }
+    */
 }
 
 void DVCastLayer::onHello(DVCastHello* msg){
@@ -154,6 +168,7 @@ void DVCastLayer::onHello(DVCastHello* msg){
 
 void DVCastLayer::mapRelativePos(DVCastHello* msg)
 {
+    assert(mobility);
     Coord senderPos = msg->getSenderPos();
     double myAngle  = convertAngleToDegrees(mobility->getAngleRad());
     double nbAngle  = convertAngleToDegrees(msg->getSenderAngle());
@@ -165,7 +180,7 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
         angleDiff = 360 - angleDiff;
     }
 
-    if(angleDiff <= 45) // in the same direction
+    if(angleDiff <= 45) // mesma direção
     {
           // EAST
         if (((nbAngle >= 0) && (nbAngle < 45)) || ((nbAngle >= 315) && (nbAngle < 360)))
@@ -235,6 +250,58 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
     {
         updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
     }
+
+    updateFlags(msg);
+}
+
+void DVCastLayer::updateFlags(DVCastHello* msg)
+{
+
+    ODC = (nb_opposite.empty()) ? false : true;
+
+    MDC = (nb_ahead.empty() || nb_back.empty()) ? false : true;
+
+    if (DVCastData* data = dynamic_cast<DVCastData*>(msg))
+    {
+        if(inROI(data->getRoiUp(), data->getRoiDown()))
+        {
+            DFLG = true;
+        }
+        else
+        {
+            DFLG = false;
+        }
+    }
+    else
+    {
+        DFLG = false;
+    }
+}
+
+Coord DVCastLayer::getROIUp()
+{
+    Coord p1(curPosition.x - senderRadius/2, curPosition.y + senderRadius/2);
+    return p1;
+}
+
+Coord DVCastLayer::getROIDown()
+{
+    Coord p2(curPosition.x + senderRadius/2, curPosition.y - senderRadius/2);
+    return p2;
+}
+
+
+bool DVCastLayer::inROI(Coord up, Coord down)
+{
+    if ((curPosition.x > up.x) && (curPosition.x < down.x) &&
+        (curPosition.y > up.y) && (curPosition.y < down.y))
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }
 
 void DVCastLayer::updateTables(std::deque<int>* target, std::deque<int>* tRemove1,
@@ -258,6 +325,7 @@ void DVCastLayer::removeFromTable(std::deque<int>* target, int key) {
     {
         if (*it == key)
         {
+            // TODO Tratar caso em que nó vizinho pode aparecer mais de uma vez
             it = target->erase(it);
             break;
         }

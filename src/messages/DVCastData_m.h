@@ -28,6 +28,7 @@
  * <pre>
  * packet DVCastData extends BasicSafetyMessage
  * {
+ *     double senderAngle;
  *     Coord roiUp;
  *     Coord roiDown;
  * }
@@ -36,6 +37,7 @@
 class DVCastData : public ::BasicSafetyMessage
 {
   protected:
+    double senderAngle;
     Coord roiUp;
     Coord roiDown;
 
@@ -56,6 +58,8 @@ class DVCastData : public ::BasicSafetyMessage
     virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
 
     // field getter/setter methods
+    virtual double getSenderAngle() const;
+    virtual void setSenderAngle(double senderAngle);
     virtual Coord& getRoiUp();
     virtual const Coord& getRoiUp() const {return const_cast<DVCastData*>(this)->getRoiUp();}
     virtual void setRoiUp(const Coord& roiUp);
