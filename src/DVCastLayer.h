@@ -44,29 +44,30 @@ protected:
 private:
 
     // Armazena nós a frente
-    std::deque<int> nb_ahead;
+    std::map<int, simtime_t> nb_ahead;
     // Armazena nós atrás
-    std::deque<int> nb_back;
+    std::map<int, simtime_t> nb_back;
     // Armazena nós em direção oposta
-    std::deque<int> nb_opposite;
+    std::map<int, simtime_t> nb_opposite;
+
+    std::vector<DVCastData*> *msg_vector;
+
+    const simtime_t timeout = 5;
 
     // Mapeia a posição do nó emissor em relação este nó
-    virtual void mapRelativePos(DVCastHello* msg);
+    virtual bool mapRelativePos(DVCastHello* msg);
 
     // Atualiza a topologia da rede
-    virtual void updateTables(std::deque<int>* target,
-                              std::deque<int>* t_remove1,
-                              std::deque<int>* t_remove2,
-                              int key);
-
-    // Remove nó de uma das tabelas
-    virtual void removeFromTable(std::deque<int>* target, int key);
+    virtual void updateTables(std::map<int, simtime_t>* target,
+                              std::map<int, simtime_t>* t_remove1,
+                              std::map<int, simtime_t>* t_remove2,
+                              DVCastHello* msg);
 
     // Converte o ângulo de radianos para graus
     virtual int convertAngleToDegrees(double angleRad);
 
     // Atualiza as flags após hello ou data
-    virtual void updateFlags(DVCastHello* msg);
+    virtual void updateFlags(DVCastHello* msg, bool sameDirection);
 
     virtual bool inROI(Coord up, Coord down);
 
@@ -88,6 +89,9 @@ private:
 
     // Evento de Hello, usado como beacon do DVCast
     cMessage* sendHelloEvt;
+
+    simtime_t timeout_wait_I;
+    simtime_t timeout_wait_II;
 
 };
 

@@ -20,24 +20,24 @@
 
 // cplusplus {{
 #include "veins/base/utils/Coord.h"
-#include "veins/modules/messages/BasicSafetyMessage_m.h"
+//#include "veins/modules/messages/BasicSafetyMessage_m.h"
+#include "DVCastHello_m.h" 
 // }}
 
 /**
- * Class generated from <tt>messages/DVCastData.msg:10</tt> by nedtool.
+ * Class generated from <tt>messages/DVCastData.msg:12</tt> by nedtool.
  * <pre>
- * packet DVCastData extends BasicSafetyMessage
+ * packet DVCastData extends DVCastHello//BasicSafetyMessage
  * {
- *     double senderAngle;
+ *     //    double senderAngle;
  *     Coord roiUp;
  *     Coord roiDown;
  * }
  * </pre>
  */
-class DVCastData : public ::BasicSafetyMessage
+class DVCastData : public ::DVCastHello
 {
   protected:
-    double senderAngle;
     Coord roiUp;
     Coord roiDown;
 
@@ -58,8 +58,6 @@ class DVCastData : public ::BasicSafetyMessage
     virtual void parsimUnpack(omnetpp::cCommBuffer *b) override;
 
     // field getter/setter methods
-    virtual double getSenderAngle() const;
-    virtual void setSenderAngle(double senderAngle);
     virtual Coord& getRoiUp();
     virtual const Coord& getRoiUp() const {return const_cast<DVCastData*>(this)->getRoiUp();}
     virtual void setRoiUp(const Coord& roiUp);

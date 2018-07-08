@@ -19,6 +19,12 @@ void DVCastLayer::initialize(int stage)
         helloInterval = par("helloInterval").doubleValue();
 
         sendHelloEvt = new cMessage("hello evt", 0);
+
+        ODC = false;
+        MDC = false;
+        DFLG = false;
+
+        msg_vector = new std::vector<DVCastData*>();
     }
     else if (stage == 1)
     {
@@ -30,8 +36,6 @@ void DVCastLayer::initialize(int stage)
         if (sendHello) {
             scheduleAt(firstHello, sendHelloEvt);
         }
-
-
     }
 }
 
@@ -48,22 +52,42 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
 
     if(DVCastHello* hello = dynamic_cast<DVCastHello*>(bsm))
     {
-        EV_INFO << "[DVCAST Hello] Sender: " << hello->getSenderAddress()
-                << "| Pos: "   << hello->getSenderPos()
-                << "| Angle: " << hello->getSenderAngle()
-                << endl;
+        bool sameDirection = mapRelativePos(hello);
 
-        mapRelativePos(hello);
+        // retransmite a mensagem ODN
+        if (!sameDirection && MDC == 0)
+        {
+            findHost()->getDisplayString().updateWith("r=16,yellow");
+            std::vector<DVCastData*>::iterator it;
+            for (it=msg_vector->begin(); it!=msg_vector->end(); it++)
+            {
+                DVCastData* relayMsg = *it;
+                relayMsg->setSerial(relayMsg->getSerial() + 1);
+                relayMsg->getId();
+
+                sendDown(relayMsg->dup());
+            }
+        }
+
+        updateFlags(hello, sameDirection);
+
+        if (DVCastData* data = dynamic_cast<DVCastData*>(hello))
+        {
+            // retransmite a mensagem que acabou de receber
+            if (MDC == 0 && ODC == 1)
+            {
+                findHost()->getDisplayString().updateWith("r=16,green");
+                DVCastData* dataCopy = data->dup();
+                dataCopy->setSerial(dataCopy->getSerial() + 1);
+                sendDown(dataCopy);
+
+                if (DFLG == 0) {
+                    msg_vector->push_back(dataCopy);
+                }
+            }
+        }
     }
-    else if(DVCastData* data = dynamic_cast<DVCastData*>(bsm))
-    {
-        EV_INFO << "[DVCAST Data] Sender: " << data->getSenderAddress()
-                << "| Pos: "      << data->getSenderPos()
-                << "| Angle: "    << data->getSenderAngle()
-                << "| ROI Up: "   << data->getRoiUp()
-                << "| ROI Down: " << data->getRoiDown()
-                << endl;
-    }
+
 }
 
 void DVCastLayer::onWSM(WaveShortMessage* wsm) {
@@ -122,14 +146,13 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
     //the vehicle has moved. Code that reacts to new positions goes here.
     //member variables such as currentPosition and currentSpeed are updated in the parent class
 
-    /*
     // stopped for for at least 10s?
     if (mobility->getSpeed() < 1) {
         if (simTime() - lastDroveAt >= 10 && sentMessage == false) {
             findHost()->getDisplayString().updateWith("r=16,red");
             sentMessage = true;
 
-            DVCastData* data = new DVCastData();
+            DVCastData* data = new DVCastData("data");
             populateWSM(data);
 
             //host is standing still due to crash
@@ -147,32 +170,19 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
     else {
         lastDroveAt = simTime();
     }
-    */
-}
-
-void DVCastLayer::onHello(DVCastHello* msg){
-
-    EV << "****onHello" << endl;
-
-    EV << "My Position x:" << mobility->getCurrentPosition().x
-       << " My Position y:" << mobility->getCurrentPosition().y
-       << " My Id: " << getParentModule()->getIndex() << " angle: "
-       << convertAngleToDegrees(mobility->getAngleRad()) << endl;
-
-    EV << "Sender Position x:"  << msg->getSenderPos().x
-       << " Sender Position y:" << msg->getSenderPos().y
-       << " Sender id: "        << msg->getSenderAddress()
-       << " angle: " << convertAngleToDegrees(msg->getSenderAngle()) << endl;
 
 }
 
-void DVCastLayer::mapRelativePos(DVCastHello* msg)
+bool DVCastLayer::mapRelativePos(DVCastHello* msg)
 {
     assert(mobility);
     Coord senderPos = msg->getSenderPos();
+
     double myAngle  = convertAngleToDegrees(mobility->getAngleRad());
     double nbAngle  = convertAngleToDegrees(msg->getSenderAngle());
     int angleDiff   = std::abs(myAngle - nbAngle);
+
+    bool sameDirection = angleDiff < 45;
 
     // Trata os casos de borda, principalmente na direção leste
     if (angleDiff > 180)
@@ -180,7 +190,7 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
         angleDiff = 360 - angleDiff;
     }
 
-    if(angleDiff <= 45) // mesma direção
+    if(sameDirection) // mesma direção
     {
           // EAST
         if (((nbAngle >= 0) && (nbAngle < 45)) || ((nbAngle >= 315) && (nbAngle < 360)))
@@ -188,13 +198,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             if(mobility->getCurrentPosition().x <= senderPos.x)
             {
                 // Vizinho a frente na direção leste
-                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " B E" << endl;
             }
             else
             {
                 // Vizinho atrás na direção leste
-                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " A E" << endl;
             }
         } // NORTH
@@ -203,13 +213,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             if(mobility->getCurrentPosition().y <= senderPos.y)
             {
                 // Vizinho a frente na direção norte
-                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " B N" << endl;
             }
             else
             {
                 // Vizinho atrás na direção norte
-                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " A N" << endl;
             }
 
@@ -219,13 +229,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             if(mobility->getCurrentPosition().x >= senderPos.x)
             {
                 // Vizinho a frente na direção oeste
-                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " B W" << endl;
             }
             else
             {
                 // Vizinho atrás na direção oeste
-                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " A W" << endl;
             }
 
@@ -235,42 +245,33 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             if(mobility->getCurrentPosition().y >= senderPos.y)
             {
                 // Vizinho a frente na direção sul
-                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " B S" << endl;
             }
             else
             {
                 // Vizinho atrás na direção sul
-                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
+                updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
                 EV_INFO << "[" << myId << "] " << " A S" << endl;
             }
         }
     }
     else if ((angleDiff > 90) && (angleDiff <= 180)) // Opposite direction
     {
-        updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
+        updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
     }
 
-    updateFlags(msg);
+    return sameDirection;
 }
 
-void DVCastLayer::updateFlags(DVCastHello* msg)
+void DVCastLayer::updateFlags(DVCastHello* msg, bool sameDirection)
 {
-
-    ODC = (nb_opposite.empty()) ? false : true;
-
-    MDC = (nb_ahead.empty() || nb_back.empty()) ? false : true;
+    ODC = !nb_opposite.empty();
 
     if (DVCastData* data = dynamic_cast<DVCastData*>(msg))
     {
-        if(inROI(data->getRoiUp(), data->getRoiDown()))
-        {
-            DFLG = true;
-        }
-        else
-        {
-            DFLG = false;
-        }
+        MDC = (nb_back.empty() && sameDirection) || (nb_ahead.empty() && !sameDirection) ? false : true;
+        DFLG = inROI(data->getRoiUp(), data->getRoiDown());
     }
     else
     {
@@ -304,37 +305,31 @@ bool DVCastLayer::inROI(Coord up, Coord down)
     }
 }
 
-void DVCastLayer::updateTables(std::deque<int>* target, std::deque<int>* tRemove1,
-                               std::deque<int>* tRemove2, int key){
+void DVCastLayer::updateTables(std::map<int, simtime_t>* target, std::map<int, simtime_t>* tRemove1,
+                               std::map<int, simtime_t>* tRemove2, DVCastHello* msg){
+    int key = msg->getSenderAddress();
+    simtime_t timestamp = msg->getTimestamp();
 
-    removeFromTable(target, key);
-    removeFromTable(tRemove1, key);
-    removeFromTable(tRemove2, key);
+    target->erase(key);
+    tRemove1->erase(key);
+    tRemove2->erase(key);
 
-    target->push_back(key);
+    target->insert(std::pair<int, simtime_t>(key, timestamp));
 
-    while (target->size() > 5)
+    simtime_t currentTime = simTime();
+    std::map<int, simtime_t>::iterator it;
+    for (it=target->begin(); it != target->end(); it++)
     {
-        target->pop_front();
-    }
-}
-
-void DVCastLayer::removeFromTable(std::deque<int>* target, int key) {
-
-    for (auto it = target->begin(); it != target->end();)
-    {
-        if (*it == key)
+        if (currentTime - it->second > timeout)
         {
-            // TODO Tratar caso em que nó vizinho pode aparecer mais de uma vez
-            it = target->erase(it);
-            break;
-        }
-        else
-        {
-            ++it;
+            target->erase(it);
         }
     }
+
+//  Talvez atualizar outras tabelas dos outros vizinhos.
 }
+
+
 
 int DVCastLayer::convertAngleToDegrees(double angleRad){
 
