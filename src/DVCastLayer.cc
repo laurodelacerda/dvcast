@@ -189,13 +189,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção leste
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " B E" << endl;
+//                EV_INFO << "[" << myId << "] " << " B E" << endl;
             }
             else
             {
                 // Vizinho atrás na direção leste
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " A E" << endl;
+//                EV_INFO << "[" << myId << "] " << " A E" << endl;
             }
         } // NORTH
         else if (((nbAngle >= 45) && (nbAngle < 90)) || ((nbAngle >= 90) && (nbAngle < 135)))
@@ -204,13 +204,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção norte
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " B N" << endl;
+//                EV_INFO << "[" << myId << "] " << " B N" << endl;
             }
             else
             {
                 // Vizinho atrás na direção norte
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " A N" << endl;
+//                EV_INFO << "[" << myId << "] " << " A N" << endl;
             }
 
         } // WEST
@@ -220,13 +220,13 @@ void DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção oeste
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " B W" << endl;
+//                EV_INFO << "[" << myId << "] " << " B W" << endl;
             }
             else
             {
                 // Vizinho atrás na direção oeste
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg->getSenderAddress());
-                EV_INFO << "[" << myId << "] " << " A W" << endl;
+//                EV_INFO << "[" << myId << "] " << " A W" << endl;
             }
 
         } // SOUTH
