@@ -16,18 +16,10 @@ public:
     virtual void initialize(int stage);
     virtual void finish();
 
-    enum DVCastMessageKinds {
-        SEND_HELLO_EVT,
-        SEND_DATA_EVT
-    };
-
 protected:
 
-    // Função redefinida para lidar com DVCastHello
+    // Função redefinida para lidar com DVCastHello e DVCastData
     virtual void onBSM(BasicSafetyMessage* bsm);
-
-    // Função redefinida para lidar com DVCastData
-    virtual void onWSM(WaveShortMessage* wsm);
 
     // Função redefinida para popular DVCastHello e DVCastData
     virtual void populateWSM(WaveShortMessage*  wsm, int rcvId=-1, int serial=0);
@@ -37,9 +29,6 @@ protected:
 
     // Atualiza informações de posição de nó
     virtual void handlePositionUpdate(cObject* obj);
-
-    // Imprime mensagens de Hello recebidas
-    void onHello(DVCastHello* msg);
 
 private:
 
@@ -55,15 +44,19 @@ private:
     // Converte o ângulo de radianos para graus
     virtual int convertAngleToDegrees(double angleRad);
 
+    // Retransmite mensagens na fila de saída
     virtual void rebroadcast();
 
+    // Apaga mensagens da fila de saída
     virtual void idle();
 
+    // Mostra a topologia atual
     virtual void printTopology();
 
     // Atualiza as flags após hello ou data
     virtual void updateFlags(DVCastHello* msg, bool sameDirection);
 
+    // Verifica se nó está na região de interesse
     virtual bool inROI(Coord up, Coord down);
 
     virtual Coord getROIUp();
@@ -76,12 +69,11 @@ private:
     // Armazena nós em direção oposta
     std::map<int, simtime_t> nb_opposite;
 
-    std::vector<DVCastData*> *msg_vector;
+    // Fila de mensagens de saída
     std::map<cMessage*, DVCastData*> queue;
 
     simtime_t lastDroveAt;
     simtime_t helloInterval;
-
     bool sentMessage;
     bool sendHello;
 
@@ -96,7 +88,8 @@ private:
     cMessage* sendHelloEvt;
 
     // Timeout
-    simtime_t timeout;
+    simtime_t timeoutMessage;
+    simtime_t timeoutTopology;
     simtime_t checkpoint;
     bool accident;
     bool checkTopology;

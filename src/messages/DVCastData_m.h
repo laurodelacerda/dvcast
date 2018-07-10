@@ -20,16 +20,14 @@
 
 // cplusplus {{
 #include "veins/base/utils/Coord.h"
-//#include "veins/modules/messages/BasicSafetyMessage_m.h"
 #include "DVCastHello_m.h" 
 // }}
 
 /**
- * Class generated from <tt>messages/DVCastData.msg:12</tt> by nedtool.
+ * Class generated from <tt>messages/DVCastData.msg:10</tt> by nedtool.
  * <pre>
- * packet DVCastData extends DVCastHello//BasicSafetyMessage
+ * packet DVCastData extends DVCastHello
  * {
- *     //    double senderAngle;
  *     Coord roiUp;
  *     Coord roiDown;
  * }

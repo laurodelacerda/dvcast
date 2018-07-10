@@ -25,9 +25,8 @@ void DVCastLayer::initialize(int stage)
         MDC = false;
         DFLG = false;
 
-        msg_vector = new std::vector<DVCastData*>();
-
-        timeout = 10.0;
+        timeoutMessage  = 10.0;
+        timeoutTopology = 5.0;
         sendHelloEvt = new cMessage("helloEvent");
     }
     else if (stage == 1)
@@ -58,13 +57,14 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
         // Nós em direção oposta e responsáveis pela retransmissão
         if (!sameDirection || MDC)
         {
+            // Retransmite se tiver mensagem na fila
             rebroadcast();
         }
 
         // Atualização das flags
         updateFlags(hello, sameDirection);
 
-        // Tratamento de mensagem de dados
+        // Se for mensagem de dados
         if (DVCastData* data = dynamic_cast<DVCastData*>(hello))
         {
             // Nó em direção oposta retransmite a mensagem
@@ -72,30 +72,29 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
             {
                 rebroadcast();
 
+                // Se nó não está na área de interesse, adiciona mensagem na fila para retransmissão
                 if (!DFLG)
                 {
                     cMessage* msg = new cMessage();
                     queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
-                    scheduleAt(simTime() + timeout, msg);
+                    scheduleAt(simTime() + timeoutMessage, msg);
                 }
                 else
                 {
                     idle();
                 }
             }
-            else if(!MDC && !ODC)
+            else if(!MDC && !ODC) // Se nó é último de cluster (mesma direção) ou primeiro na direção oposta da mensagem
             {
                 cMessage* msg = new cMessage();
                 queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
-                scheduleAt(simTime() + timeout, msg);
+                scheduleAt(simTime() + timeoutMessage, msg);
             }
         }
     }
 
 }
 
-void DVCastLayer::onWSM(WaveShortMessage* wsm) {
-}
 
 void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
 {
@@ -152,11 +151,10 @@ void DVCastLayer::handleSelfMsg(cMessage* msg) {
 void DVCastLayer::handlePositionUpdate(cObject* obj) {
     BaseWaveApplLayer::handlePositionUpdate(obj);
 
-    // stopped for for at least 10s?
+    // Carro parado por mais de 10s é considerado acidentado
     if (mobility->getSpeed() < 1) {
         if (simTime() - lastDroveAt >= 10 && !sentMessage && accident)
         {
-//            findHost()->getDisplayString().updateWith("r=16,red");
             sentMessage = true;
 
             DVCastData* data = new DVCastData("data", 1);
@@ -165,29 +163,41 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
             bubble("Me acidentei!");
         }
     }
-    else {
+    else
+    {
         lastDroveAt = simTime();
     }
 
-    if(simTime() - checkpoint >= 5 && checkTopology)
+
+    if(MDC && DFLG)                //  Well Connected: Broadcast suppression
+    {
+        findHost()->getDisplayString().updateWith("r=8,green");
+    }
+    else if(MDC && !DFLG)          //  Well Connected: Help relay the packet doing broadcast suppression
+    {
+        findHost()->getDisplayString().updateWith("r=8,blue");
+    }
+    else if(!MDC && ODC && DFLG)   // Sparsely connected: Rebroadcast and assume that the ODN will help relay or rebroadcast
+    {
+        findHost()->getDisplayString().updateWith("r=8,red");
+    }
+    else if(!MDC && ODC && !DFLG)  // Sparsely connected: Rebroadcast, and help carry and forward ...
+    {
+        findHost()->getDisplayString().updateWith("r=8,orange");
+    }
+    else if(!MDC && !ODC && DFLG ) // Totally disconnected
+    {
+        findHost()->getDisplayString().updateWith("r=8,yellow");
+    }
+    else                           // Nothing happens
+    {
+        findHost()->getDisplayString().updateWith("r=8,gray");
+    }
+
+    if(simTime() - checkpoint > 5 && checkTopology)
     {
         printTopology();
-    }
-    else
-    {
-
-    }
-
-    if(!MDC) //  Último do bloco na direção da mensagem ou primeiro da direção oposta
-    {
-        findHost()->getDisplayString().updateWith("r=16,red");
-    } else if(ODC)
-    {
-        findHost()->getDisplayString().updateWith("r=16,yellow");
-    }
-    else
-    {
-        findHost()->getDisplayString().updateWith("r=0,gray");
+        checkpoint = simTime();
     }
 }
 
@@ -334,10 +344,11 @@ void DVCastLayer::updateTables(std::map<int, simtime_t>* target, std::map<int, s
     target->insert(std::pair<int, simtime_t>(key, timestamp));
 
     simtime_t currentTime = simTime();
+
     std::map<int, simtime_t>::iterator it;
     for (it=target->begin(); it != target->end(); it++)
     {
-        if (currentTime - it->second > timeout)
+        if (currentTime - it->second > timeoutTopology)
         {
             target->erase(it);
         }
@@ -362,14 +373,11 @@ int DVCastLayer::convertAngleToDegrees(double angleRad){
 
 void DVCastLayer::rebroadcast()
 {
-    std::vector<DVCastData*>::iterator it;
-
     // Nós retransmitem a mensagem constantemente
-    for (it=msg_vector->begin(); it!=msg_vector->end(); it++)
+    for (auto& t : queue)
     {
-        DVCastData* relayMsg = *it;
+        DVCastData* relayMsg = t.second;
         relayMsg->setSerial(relayMsg->getSerial() + 1);
-        relayMsg->getId();
 
         sendDown(relayMsg->dup());
     }
