@@ -8,4 +8,6 @@ simple DVCastLayer extends BaseWaveApplLayer
     string appName = default("DVCastLayer");
     double helloInterval = default(1s) @unit(s);
     bool sendHello = default(true); 
+    bool accident = default(false);
+    bool checkTopology = default(false);
 }

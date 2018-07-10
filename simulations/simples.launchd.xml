@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- debug config -->
+<launch>
+	<copy file="simples.net.xml" />
+	<copy file="simples.rou.xml" />
+	<copy file="simples.sumo.cfg" type="config" />
+</launch>
+

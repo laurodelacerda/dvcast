@@ -13,18 +13,22 @@ void DVCastLayer::initialize(int stage)
         //Initializing members and pointers of your application goes here
         EV << "Initializing " << par("appName").stringValue() << std::endl;
         lastDroveAt = simTime();
+        checkpoint  = simTime();
         sentMessage = false;
         sendHello   = par("sendHello").boolValue();
-
+        accident = par("accident").boolValue();
+        checkTopology = par("checkTopology").boolValue();
         helloInterval = par("helloInterval").doubleValue();
 
-        sendHelloEvt = new cMessage("hello evt", 0);
 
         ODC = false;
         MDC = false;
         DFLG = false;
 
         msg_vector = new std::vector<DVCastData*>();
+
+        timeout = 10.0;
+        sendHelloEvt = new cMessage("helloEvent");
     }
     else if (stage == 1)
     {
@@ -47,43 +51,43 @@ void DVCastLayer::finish() {
 
 void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
 {
-    //Your application has received a beacon message from another car or RSU
-    //code for handling the message goes here
-
     if(DVCastHello* hello = dynamic_cast<DVCastHello*>(bsm))
     {
         bool sameDirection = mapRelativePos(hello);
 
-        // retransmite a mensagem ODN
-        if (!sameDirection && MDC == 0)
+        // Nós em direção oposta e responsáveis pela retransmissão
+        if (!sameDirection || MDC)
         {
-            findHost()->getDisplayString().updateWith("r=16,yellow");
-            std::vector<DVCastData*>::iterator it;
-            for (it=msg_vector->begin(); it!=msg_vector->end(); it++)
-            {
-                DVCastData* relayMsg = *it;
-                relayMsg->setSerial(relayMsg->getSerial() + 1);
-                relayMsg->getId();
-
-                sendDown(relayMsg->dup());
-            }
+            rebroadcast();
         }
 
+        // Atualização das flags
         updateFlags(hello, sameDirection);
 
+        // Tratamento de mensagem de dados
         if (DVCastData* data = dynamic_cast<DVCastData*>(hello))
         {
-            // retransmite a mensagem que acabou de receber
-            if (MDC == 0 && ODC == 1)
+            // Nó em direção oposta retransmite a mensagem
+            if (!MDC && ODC)
             {
-                findHost()->getDisplayString().updateWith("r=16,green");
-                DVCastData* dataCopy = data->dup();
-                dataCopy->setSerial(dataCopy->getSerial() + 1);
-                sendDown(dataCopy);
+                rebroadcast();
 
-                if (DFLG == 0) {
-                    msg_vector->push_back(dataCopy);
+                if (!DFLG)
+                {
+                    cMessage* msg = new cMessage();
+                    queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
+                    scheduleAt(simTime() + timeout, msg);
                 }
+                else
+                {
+                    idle();
+                }
+            }
+            else if(!MDC && !ODC)
+            {
+                cMessage* msg = new cMessage();
+                queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
+                scheduleAt(simTime() + timeout, msg);
             }
         }
     }
@@ -91,11 +95,7 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
 }
 
 void DVCastLayer::onWSM(WaveShortMessage* wsm) {
-    //Your application has received a data message from another car or RSU
-    //code for handling the message goes here, see TraciDemo11p.cc for examples
-
 }
-
 
 void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
 {
@@ -132,49 +132,63 @@ void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
 }
 
 void DVCastLayer::handleSelfMsg(cMessage* msg) {
-    //this method is for self messages (mostly timers)
-    //it is important to call the BaseWaveApplLayer function for BSM and WSM transmission
 
-    DVCastHello* hello = new DVCastHello("hello-teste", 0);
-    populateWSM(hello);
-    sendDown(hello);
-    scheduleAt(simTime() + helloInterval, sendHelloEvt);
+    if (msg == sendHelloEvt)
+    {
+        DVCastHello* hello = new DVCastHello("hello");
+        populateWSM(hello);
+        sendDown(hello);
+        scheduleAt(simTime() + helloInterval, sendHelloEvt);
+    }
+    else
+    {
+        queue.erase(msg);
+        delete msg;
+    }
 
 //    BaseWaveApplLayer::handleSelfMsg(hello);
 }
 
 void DVCastLayer::handlePositionUpdate(cObject* obj) {
     BaseWaveApplLayer::handlePositionUpdate(obj);
-    //the vehicle has moved. Code that reacts to new positions goes here.
-    //member variables such as currentPosition and currentSpeed are updated in the parent class
 
     // stopped for for at least 10s?
     if (mobility->getSpeed() < 1) {
-        if (simTime() - lastDroveAt >= 10 && sentMessage == false) {
-            findHost()->getDisplayString().updateWith("r=16,red");
+        if (simTime() - lastDroveAt >= 10 && !sentMessage && accident)
+        {
+//            findHost()->getDisplayString().updateWith("r=16,red");
             sentMessage = true;
 
             DVCastData* data = new DVCastData("data", 1);
             populateWSM(data);
             sendDown(data);
-
-
-//            //host is standing still due to crash
-//            if (dataOnSch) {
-//                startService(Channels::SCH2, 42, "Traffic Information Service");
-//                //started service and server advertising, schedule message to self to send later
-//                scheduleAt(computeAsynchronousSendingTime(1,type_SCH), data);
-//            }
-//            else {
-//                //send right away on CCH, because channel switching is disabled
-//                sendDown(data);
-//            }
+            bubble("Me acidentei!");
         }
     }
     else {
         lastDroveAt = simTime();
     }
 
+    if(simTime() - checkpoint >= 5 && checkTopology)
+    {
+        printTopology();
+    }
+    else
+    {
+
+    }
+
+    if(!MDC) //  Último do bloco na direção da mensagem ou primeiro da direção oposta
+    {
+        findHost()->getDisplayString().updateWith("r=16,red");
+    } else if(ODC)
+    {
+        findHost()->getDisplayString().updateWith("r=16,yellow");
+    }
+    else
+    {
+        findHost()->getDisplayString().updateWith("r=0,gray");
+    }
 }
 
 bool DVCastLayer::mapRelativePos(DVCastHello* msg)
@@ -203,13 +217,13 @@ bool DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção leste
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " B E" << endl;
+//                EV_INFO << "[" << myId << "] " << " B E" << endl;
             }
             else
             {
                 // Vizinho atrás na direção leste
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " A E" << endl;
+//                EV_INFO << "[" << myId << "] " << " A E" << endl;
             }
         } // NORTH
         else if (((nbAngle >= 45) && (nbAngle < 90)) || ((nbAngle >= 90) && (nbAngle < 135)))
@@ -218,13 +232,13 @@ bool DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção norte
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " B N" << endl;
+//                EV_INFO << "[" << myId << "] " << " B N" << endl;
             }
             else
             {
                 // Vizinho atrás na direção norte
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " A N" << endl;
+//                EV_INFO << "[" << myId << "] " << " A N" << endl;
             }
 
         } // WEST
@@ -234,13 +248,13 @@ bool DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção oeste
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " B W" << endl;
+//                EV_INFO << "[" << myId << "] " << " B W" << endl;
             }
             else
             {
                 // Vizinho atrás na direção oeste
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " A W" << endl;
+//                EV_INFO << "[" << myId << "] " << " A W" << endl;
             }
 
         } // SOUTH
@@ -250,13 +264,13 @@ bool DVCastLayer::mapRelativePos(DVCastHello* msg)
             {
                 // Vizinho a frente na direção sul
                 updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " B S" << endl;
+//                EV_INFO << "[" << myId << "] " << " B S" << endl;
             }
             else
             {
                 // Vizinho atrás na direção sul
                 updateTables(&nb_back, &nb_ahead, &nb_opposite, msg);
-                EV_INFO << "[" << myId << "] " << " A S" << endl;
+//                EV_INFO << "[" << myId << "] " << " A S" << endl;
             }
         }
     }
@@ -272,15 +286,14 @@ void DVCastLayer::updateFlags(DVCastHello* msg, bool sameDirection)
 {
     ODC = !nb_opposite.empty();
 
+    MDC = !((nb_back.empty() && sameDirection) || (nb_ahead.empty() && !sameDirection));
+
     if (DVCastData* data = dynamic_cast<DVCastData*>(msg))
-    {
-        MDC = (nb_back.empty() && sameDirection) || (nb_ahead.empty() && !sameDirection) ? false : true;
         DFLG = inROI(data->getRoiUp(), data->getRoiDown());
-    }
     else
-    {
         DFLG = false;
-    }
+
+
 }
 
 Coord DVCastLayer::getROIUp()
@@ -294,7 +307,6 @@ Coord DVCastLayer::getROIDown()
     Coord p2(curPosition.x + senderRadius/2, curPosition.y - senderRadius/2);
     return p2;
 }
-
 
 bool DVCastLayer::inROI(Coord up, Coord down)
 {
@@ -311,6 +323,7 @@ bool DVCastLayer::inROI(Coord up, Coord down)
 
 void DVCastLayer::updateTables(std::map<int, simtime_t>* target, std::map<int, simtime_t>* tRemove1,
                                std::map<int, simtime_t>* tRemove2, DVCastHello* msg){
+
     int key = msg->getSenderAddress();
     simtime_t timestamp = msg->getTimestamp();
 
@@ -333,8 +346,6 @@ void DVCastLayer::updateTables(std::map<int, simtime_t>* target, std::map<int, s
 //  Talvez atualizar outras tabelas dos outros vizinhos.
 }
 
-
-
 int DVCastLayer::convertAngleToDegrees(double angleRad){
 
     double angleDeg;
@@ -347,4 +358,44 @@ int DVCastLayer::convertAngleToDegrees(double angleRad){
     }
     EV_INFO << angleRad << " " << angleDeg << endl;
     return angleDeg;
+}
+
+void DVCastLayer::rebroadcast()
+{
+    std::vector<DVCastData*>::iterator it;
+
+    // Nós retransmitem a mensagem constantemente
+    for (it=msg_vector->begin(); it!=msg_vector->end(); it++)
+    {
+        DVCastData* relayMsg = *it;
+        relayMsg->setSerial(relayMsg->getSerial() + 1);
+        relayMsg->getId();
+
+        sendDown(relayMsg->dup());
+    }
+}
+
+void DVCastLayer::idle()
+{
+    queue.clear();
+}
+
+void DVCastLayer::printTopology()
+{
+    EV_INFO << "[DVCAST Flags] MDC: " << MDC << " ODC: " << ODC << " DFLG: " << DFLG << endl;
+
+    EV_INFO << "[DVCAST AHEAD] [";
+    for (auto& t : nb_ahead)
+        EV_INFO << t.first << " " ;
+    EV_INFO << "]" << endl;
+
+    EV_INFO << "[DVCAST BACK] [";
+    for (auto& t : nb_back)
+        EV_INFO << t.first << " " ;
+    EV_INFO << "]" << endl;
+
+    EV_INFO << "[DVCAST OPPOSITE] [";
+    for (auto& t : nb_opposite)
+        EV_INFO << t.first << " " ;
+    EV_INFO << "]" << endl;
 }

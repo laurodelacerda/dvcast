@@ -43,17 +43,6 @@ protected:
 
 private:
 
-    // Armazena nós a frente
-    std::map<int, simtime_t> nb_ahead;
-    // Armazena nós atrás
-    std::map<int, simtime_t> nb_back;
-    // Armazena nós em direção oposta
-    std::map<int, simtime_t> nb_opposite;
-
-    std::vector<DVCastData*> *msg_vector;
-
-    const simtime_t timeout = 5;
-
     // Mapeia a posição do nó emissor em relação este nó
     virtual bool mapRelativePos(DVCastHello* msg);
 
@@ -66,6 +55,12 @@ private:
     // Converte o ângulo de radianos para graus
     virtual int convertAngleToDegrees(double angleRad);
 
+    virtual void rebroadcast();
+
+    virtual void idle();
+
+    virtual void printTopology();
+
     // Atualiza as flags após hello ou data
     virtual void updateFlags(DVCastHello* msg, bool sameDirection);
 
@@ -73,6 +68,16 @@ private:
 
     virtual Coord getROIUp();
     virtual Coord getROIDown();
+
+    // Armazena nós a frente
+    std::map<int, simtime_t> nb_ahead;
+    // Armazena nós atrás
+    std::map<int, simtime_t> nb_back;
+    // Armazena nós em direção oposta
+    std::map<int, simtime_t> nb_opposite;
+
+    std::vector<DVCastData*> *msg_vector;
+    std::map<cMessage*, DVCastData*> queue;
 
     simtime_t lastDroveAt;
     simtime_t helloInterval;
@@ -90,8 +95,11 @@ private:
     // Evento de Hello, usado como beacon do DVCast
     cMessage* sendHelloEvt;
 
-    simtime_t timeout_wait_I;
-    simtime_t timeout_wait_II;
+    // Timeout
+    simtime_t timeout;
+    simtime_t checkpoint;
+    bool accident;
+    bool checkTopology;
 
 };
 
