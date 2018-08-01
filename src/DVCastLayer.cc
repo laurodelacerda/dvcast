@@ -28,6 +28,13 @@ void DVCastLayer::initialize(int stage)
         timeoutMessage  = 10.0;
         timeoutTopology = 5.0;
         sendHelloEvt = new cMessage("helloEvent");
+
+        generatedWSMs = 0;
+        generatedDVHello = 0;
+        generatedDVData = 0;
+        receivedWSMs = 0;
+        receivedDVHello = 0;
+        receivedDVData = 0;
     }
     else if (stage == 1)
     {
@@ -36,15 +43,23 @@ void DVCastLayer::initialize(int stage)
         simtime_t randomOffset = dblrand() * beaconInterval;
         firstHello = simTime() + randomOffset;
 
-        if (sendHello) {
+        if (sendHello)
+        {
             scheduleAt(firstHello, sendHelloEvt);
         }
     }
 }
 
 void DVCastLayer::finish() {
-    BaseWaveApplLayer::finish();
-    //statistics recording goes here
+//    BaseWaveApplLayer::finish();
+    recordScalar("generatedWSMs",generatedWSMs);
+    recordScalar("receivedWSMs",receivedWSMs);
+
+    recordScalar("generatedDVHello",generatedDVHello);
+    recordScalar("receivedDVHello",receivedDVHello);
+
+    recordScalar("generatedDVData",generatedDVData);
+    recordScalar("receiveDVData",receivedDVData);
 
 }
 
@@ -65,9 +80,10 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
         updateFlags(hello, sameDirection);
 
         // Se for mensagem de dados
+        // TODO Verificar se está passando por aqui
         if (DVCastData* data = dynamic_cast<DVCastData*>(hello))
         {
-            // Nó em direção oposta retransmite a mensagem
+            // Se tiver vizinho para retransmissão
             if (!MDC && ODC)
             {
                 rebroadcast();
@@ -76,25 +92,25 @@ void DVCastLayer::onBSM(BasicSafetyMessage* bsm)
                 if (!DFLG)
                 {
                     cMessage* msg = new cMessage();
-                    queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
                     scheduleAt(simTime() + timeoutMessage, msg);
+                    queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
                 }
                 else
                 {
                     idle();
                 }
             }
-            else if(!MDC && !ODC) // Se nó é último de cluster (mesma direção) ou primeiro na direção oposta da mensagem
+            else if(!MDC && !ODC) // Se não tiver vizinho para retransmissão
             {
                 cMessage* msg = new cMessage();
-                queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
                 scheduleAt(simTime() + timeoutMessage, msg);
+                queue.insert(std::pair<cMessage*, DVCastData*>(msg, data->dup()));
             }
         }
     }
+    printTopology();
 
 }
-
 
 void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
 {
@@ -123,7 +139,7 @@ void DVCastLayer::populateWSM(WaveShortMessage*  wsm, int rcvId, int serial)
         hello->setSenderPos(curPosition);
         hello->setSenderSpeed(curSpeed);
 
-        hello->setSenderAngle(convertAngleToDegrees(mobility->getAngleRad()));
+        hello->setSenderAngle(mobility->getAngleRad());
         hello->addBitLength(beaconLengthBits);
         hello->setUserPriority(beaconUserPriority);
     }
@@ -148,12 +164,14 @@ void DVCastLayer::handleSelfMsg(cMessage* msg) {
 //    BaseWaveApplLayer::handleSelfMsg(hello);
 }
 
-void DVCastLayer::handlePositionUpdate(cObject* obj) {
+void DVCastLayer::handlePositionUpdate(cObject* obj)
+{
     BaseWaveApplLayer::handlePositionUpdate(obj);
 
     // Carro parado por mais de 10s é considerado acidentado
-    if (mobility->getSpeed() < 1) {
-        if (simTime() - lastDroveAt >= 10 && !sentMessage && accident)
+    if (mobility->getSpeed() < 1)
+    {
+        if ((simTime() - lastDroveAt >= 10) && (!sentMessage) && (accident))
         {
             sentMessage = true;
 
@@ -168,55 +186,65 @@ void DVCastLayer::handlePositionUpdate(cObject* obj) {
         lastDroveAt = simTime();
     }
 
+    printFlags();
 
-    if(MDC && DFLG)                //  Well Connected: Broadcast suppression
-    {
-        findHost()->getDisplayString().updateWith("r=8,green");
-    }
-    else if(MDC && !DFLG)          //  Well Connected: Help relay the packet doing broadcast suppression
-    {
-        findHost()->getDisplayString().updateWith("r=8,blue");
-    }
-    else if(!MDC && ODC && DFLG)   // Sparsely connected: Rebroadcast and assume that the ODN will help relay or rebroadcast
-    {
-        findHost()->getDisplayString().updateWith("r=8,red");
-    }
-    else if(!MDC && ODC && !DFLG)  // Sparsely connected: Rebroadcast, and help carry and forward ...
-    {
-        findHost()->getDisplayString().updateWith("r=8,orange");
-    }
-    else if(!MDC && !ODC && DFLG ) // Totally disconnected
-    {
-        findHost()->getDisplayString().updateWith("r=8,yellow");
-    }
-    else                           // Nothing happens
-    {
-        findHost()->getDisplayString().updateWith("r=8,gray");
-    }
-
-    if(simTime() - checkpoint > 5 && checkTopology)
+    // Mostra topologia de 5 em 5s
+    if((simTime() - checkpoint > 5) && (checkTopology))
     {
         printTopology();
         checkpoint = simTime();
+    }
+
+}
+
+void DVCastLayer::printFlags()
+{
+    if(MDC && DFLG)                // [1 0/1 1] Well Connected: Broadcast suppression
+    {
+        findHost()->getDisplayString().updateWith("r=8,green");
+    }
+    else if(MDC && !DFLG)          // [1 0/1 0] Well Connected: Help relay the packet doing broadcast suppression
+    {
+        findHost()->getDisplayString().updateWith("r=8,blue");
+    }
+    else if(!MDC && ODC && DFLG)   // [0  1  1] Sparsely connected: Rebroadcast and assume that the ODN will help relay or rebroadcast
+    {
+        findHost()->getDisplayString().updateWith("r=8,red");
+    }
+    else if(!MDC && ODC && !DFLG)  // [0  1  0] Sparsely connected: Rebroadcast, and help carry and forward ...
+    {
+        findHost()->getDisplayString().updateWith("r=8,orange");
+    }
+    else if(!MDC && !ODC && DFLG ) // [0  0  1] Totally disconnected
+    {
+        findHost()->getDisplayString().updateWith("r=8,yellow");
+    }
+    else                           // [0  0  0] Nothing happens
+    {
+        findHost()->getDisplayString().updateWith("r=8,gray");
     }
 }
 
 bool DVCastLayer::mapRelativePos(DVCastHello* msg)
 {
-    assert(mobility);
+//    assert(mobility);
     Coord senderPos = msg->getSenderPos();
 
-    double myAngle  = convertAngleToDegrees(mobility->getAngleRad());
-    double nbAngle  = convertAngleToDegrees(msg->getSenderAngle());
-    int angleDiff   = std::abs(myAngle - nbAngle);
+    double myAngle = convertAngleToDegrees(mobility->getAngleRad());
+    double nbAngle = convertAngleToDegrees(msg->getSenderAngle());
+    int angleDiff  = std::abs(myAngle - nbAngle);
 
-    bool sameDirection = angleDiff < 45;
+    EV_INFO << "My angle: " << myAngle
+            << "    | NB Angle [" << msg->getSenderAddress()
+            <<  "]: " << nbAngle << endl;
 
     // Trata os casos de borda, principalmente na direção leste
     if (angleDiff > 180)
     {
         angleDiff = 360 - angleDiff;
     }
+
+    bool sameDirection = angleDiff < 45;
 
     if(sameDirection) // mesma direção
     {
@@ -286,7 +314,7 @@ bool DVCastLayer::mapRelativePos(DVCastHello* msg)
     }
     else if ((angleDiff > 90) && (angleDiff <= 180)) // Opposite direction
     {
-        updateTables(&nb_ahead, &nb_back, &nb_opposite, msg);
+        updateTables(&nb_opposite, &nb_ahead, &nb_back, msg);
     }
 
     return sameDirection;
@@ -296,14 +324,18 @@ void DVCastLayer::updateFlags(DVCastHello* msg, bool sameDirection)
 {
     ODC = !nb_opposite.empty();
 
-    MDC = !((nb_back.empty() && sameDirection) || (nb_ahead.empty() && !sameDirection));
+    MDC = !(( sameDirection &&  nb_back.empty() && !nb_ahead.empty()) ||
+            (!sameDirection && !nb_back.empty() &&  nb_ahead.empty()));
 
+    // TODO Corrigir pois nunca recebe um DVCastData*
     if (DVCastData* data = dynamic_cast<DVCastData*>(msg))
+    {
         DFLG = inROI(data->getRoiUp(), data->getRoiDown());
+    }
     else
+    {
         DFLG = false;
-
-
+    }
 }
 
 Coord DVCastLayer::getROIUp()
@@ -354,6 +386,24 @@ void DVCastLayer::updateTables(std::map<int, simtime_t>* target, std::map<int, s
         }
     }
 
+    for (it=tRemove1->begin(); it != tRemove1->end(); it++)
+    {
+        if (currentTime - it->second > timeoutTopology)
+        {
+            tRemove1->erase(it);
+        }
+    }
+
+    for (it=tRemove2->begin(); it != tRemove2->end(); it++)
+    {
+        if (currentTime - it->second > timeoutTopology)
+        {
+            tRemove2->erase(it);
+        }
+    }
+
+
+
 //  Talvez atualizar outras tabelas dos outros vizinhos.
 }
 
@@ -367,13 +417,12 @@ int DVCastLayer::convertAngleToDegrees(double angleRad){
     {
         angleDeg += 360;
     }
-    EV_INFO << angleRad << " " << angleDeg << endl;
+//    EV_INFO << angleRad << " " << angleDeg << endl;
     return angleDeg;
 }
 
 void DVCastLayer::rebroadcast()
 {
-    // Nós retransmitem a mensagem constantemente
     for (auto& t : queue)
     {
         DVCastData* relayMsg = t.second;
@@ -406,4 +455,49 @@ void DVCastLayer::printTopology()
     for (auto& t : nb_opposite)
         EV_INFO << t.first << " " ;
     EV_INFO << "]" << endl;
+}
+
+void DVCastLayer::handleLowerMsg(cMessage* msg)
+{
+    WaveShortMessage* wsm = dynamic_cast<WaveShortMessage*>(msg);
+    ASSERT(wsm);
+
+    if (DVCastData* data = dynamic_cast<DVCastData*>(wsm))
+    {
+        DBG_APP << "received data" << std::endl;
+        receivedDVData++;
+        onBSM(data);
+    }
+    else if (DVCastHello* hello = dynamic_cast<DVCastHello*>(wsm))
+    {
+        DBG_APP << "received hello" << std::endl;
+        receivedDVHello++;
+        onBSM(hello);
+    }
+    else
+    {
+        DBG_APP << "received wsm" << std::endl;
+        receivedWSMs++;
+    }
+
+    delete(msg);
+}
+
+void DVCastLayer::checkAndTrackPacket(cMessage* msg)
+{
+    if (dynamic_cast<DVCastData*>(msg))
+    {
+        DBG_APP << "sending down data" << std::endl;
+        generatedDVData++;
+    }
+    else if (dynamic_cast<DVCastHello*>(msg))
+    {
+        DBG_APP << "sending down hello" << std::endl;
+        generatedDVHello++;
+    }
+    else if (dynamic_cast<WaveShortMessage*>(msg))
+    {
+        DBG_APP << "sending down a wsm" << std::endl;
+        generatedWSMs++;
+    }
 }

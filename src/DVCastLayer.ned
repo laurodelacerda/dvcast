@@ -9,5 +9,5 @@ simple DVCastLayer extends BaseWaveApplLayer
     double helloInterval = default(1s) @unit(s);
     bool sendHello = default(true); 
     bool accident = default(false);
-    bool checkTopology = default(false);
+    bool checkTopology = default(true);
 }
